@@ -33,6 +33,16 @@ class Session(object):
         self.isLogin = False
         self.password = None
         self.sess = requests.session()
+        self.proxiesindex = 0
+        # self.proxies = [{"url": "http://81.201.56.67:8888", "limit": 0, "update": 1671957613}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671958632}, {"url": "http://112.87.140.163:9443", "limit": 0, "update": 1671958862}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671958911}, {"url": "http://81.201.56.67:8888", "limit": 0, "update": 1671959008}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671959054}, {"url": "http://158.140.169.86:80", "limit": 0, "update": 1671959076}, {"url": "http://117.50.159.109:3128", "limit": 0, "update": 1671959294}, {"url": "http://59.15.28.113:3128", "limit": 0, "update": 1671959985}, {"url": "http://112.87.140.163:9443", "limit": 0, "update": 1671960076}, {"url": "http://117.50.159.109:3128", "limit": 0, "update": 1671960389}, {"url": "http://117.50.159.109:3128", "limit": 0, "update": 1671960617}, {"url": "http://117.50.159.109:3128", "limit": 0, "update": 1671960646}, {"url": "http://117.50.159.109:3128", "limit": 0, "update": 1671960709}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671960759}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671960794}, {"url": "http://103.54.43.131:8080", "limit": 0, "update": 1671960863}, {"url": "http://103.54.43.131:8080", "limit": 0, "update": 1671960882}, {"url": "http://103.54.43.131:8080", "limit": 0, "update": 1671961036}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671961047}, {"url": "http://195.138.90.226:3128", "limit": 0, "update": 1671961638}, {"url": "http://119.76.142.240:8080", "limit": 0, "update": 1671961851}, {"url": "http://112.87.140.164:9443", "limit": 0, "update": 1671961968}, {"url": "http://200.106.187.242:999", "limit": 0, "update": 1671962072}, {"url": "http://112.87.140.163:9443", "limit": 0, "update": 1671962446}, {"url": "http://112.87.140.163:9443", "limit": 0, "update": 1671962647}, {"url": "http://195.138.90.226:3128", "limit": 0, "update": 1671962702}, {"url": "http://112.87.140.164:9443", "limit": 0, "update": 1671962727}, {"url": "http://112.87.140.164:9443", "limit": 0, "update": 1671962910}, {"url": "http://91.236.156.30:8282", "limit": 0, "update": 1671963020}, {"url": "http://112.87.140.164:9443", "limit": 0, "update": 1671963207}]
+        self.proxies = [
+            {'http': 'http://101.52.251.186:8080', 'https': 'http://101.52.251.186:8080'},
+            {'http': 'http://124.77.80.182:9000', 'https': 'http://124.77.80.182:9000'},
+            {'http': 'http://36.99.165.148:9002', 'https': 'http://36.99.165.148:9002'},
+            {'http': 'http://124.225.21.239:9002', 'https': 'http://124.225.21.239:9002'}
+                        ]
+
+
         try:
             self.loadCookies()
         except Exception:
@@ -159,7 +169,16 @@ class Session(object):
             'area': areaId,
             'num': skuNum
         }
-        resp = requests.get(url=url, params=payload, headers=self.headers)
+        resp = None
+        try:
+            # resp = requests.get(url=url, params=payload, headers=self.headers, proxies=self.proxypool(), timeout=3)
+            resp = requests.get(url=url, params=payload, headers=self.headers, timeout=3)
+        except Exception as e:
+            print(e) # Cannot connect to proxy
+        if not resp or 'isStock' not in resp.text:
+            self.proxies.remove(self.proxies[self.proxiesindex])
+            # self.proxiesindex -= 1
+            return self.getItemDetail(skuId, skuNum, areaId)
         return resp
 
     def fetchItemDetail(self, skuId):
@@ -186,6 +205,33 @@ class Session(object):
         """
         resp = self.getItemDetail(skuId, skuNum, areaId).json()
         return 'stockInfo' in resp and resp['stockInfo']['isStock']
+
+    def proxypool(self):
+        if len(self.proxies) > 0:
+            for x in range(len(self.proxies)):
+                proxy = self.proxies[x]
+                if proxy['limit'] < 10:
+                    proxy['limit'] += 1
+                    proxy['update'] = int(time.time())
+                    self.proxies[x] = proxy
+                    self.proxiesindex = x
+                    return {'http': proxy['url'], 'https': proxy['url']}
+                else:
+                    if int(time.time()) - proxy['update'] > 30:
+                        proxy['limit'] = 0
+                        proxy['update'] = int(time.time())
+                        self.proxies[x] = proxy
+            pass
+
+        payload = {}
+        headers = {}
+        response = requests.request("GET", 'https://proxypool.scrape.center/random', headers=headers, data=payload)
+        if not response.text.__contains__(':'):
+            time.sleep(5)
+            return self.proxypool()
+        self.proxies.append({'url': 'http://{}'.format(response.text), 'limit': 0, 'update': int(time.time())})
+        self.proxiesindex = len(self.proxies) - 1
+        return {'http': 'http://{}'.format(response.text), 'https': 'http://{}'.format(response.text)}
 
     ############## 购物车相关 #############
 
@@ -536,11 +582,56 @@ class Session(object):
         return True
 
 
-if __name__ == '__main__':
+    def getProxies(self):
+        payload = {}
+        headers = {}
+        response = requests.request("GET", 'https://proxypool.scrape.center/random', headers=headers, data=payload)
+        if not response.text.__contains__(':'):
+            time.sleep(5)
+            return self.getProxies()
 
-    skuId = '100015253059'
-    areaId = '1_2901_55554_0'
-    skuNum = 1
+        url = 'https://item-soa.jd.com/getWareBusiness'
+        skuId = '100015253059'
+        areaId = '1_2901_55554_0'
+        skuNum = 1
+        payload = {
+            'skuId': skuId,
+            'area': areaId,
+            'num': skuNum
+        }
+        resp = None
+        try:
+            resp = requests.get(url=url, params=payload, headers=self.headers, proxies={'http': 'http://{}'.format(response.text), 'https': 'http://{}'.format(response.text)}, timeout=2)
+        except Exception as e:
+            print(e)  # Cannot connect to proxy
+        if not resp or 'isStock' not in resp.text:
+            return self.getProxies()
+        self.proxies.append({'url': 'http://{}'.format(response.text), 'limit': 0, 'update': int(time.time())})
+        self.proxiesindex = len(self.proxies) - 1
+        return {'http': 'http://{}'.format(response.text), 'https': 'http://{}'.format(response.text)}
 
-    session = Session()
-    print(session.getItemDetail(skuId, skuNum, areaId).text)
+
+
+
+
+# if __name__ == '__main__':
+#     session = Session()
+#     while len(session.proxies) < 30:
+#         print(session.getProxies())
+
+#
+#     skuId = '100015253059'
+#     areaId = '1_2901_55554_0'
+#     skuNum = 1
+#     #
+#     # session = Session()
+#     # print(session.getItemDetail(skuId, skuNum, areaId).text)
+#     session = Session()
+#     while True:
+#         # proxy = session.proxypool()
+#         print(session.getItemDetail(skuId, skuNum, areaId).text)
+#         print(json.dumps(session.proxies))
+#         if len(session.proxies)>30:
+#             break
+
+
